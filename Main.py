@@ -26,7 +26,6 @@ orb = cv2.ORB_create(nfeatures=800)
 bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
 def orb_similarity(img1, img2):
-    """Return ORB match count (bigger = more similar)."""
     try:
         g1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         g2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
@@ -44,11 +43,6 @@ def orb_similarity(img1, img2):
     return len(good)
 
 def detectimage(filename, threshold=10, images_folder="images"):
-    """
-    Screenshot the entire screen and compare with a single template image
-    located in the images_folder. Pass only the filename (e.g. 'target.png').
-    Return True if similar enough, else False.
-    """
     screenshot = pyautogui.screenshot()
     screenshot_np = cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGR2RGB)
 
@@ -70,16 +64,6 @@ def detectimage(filename, threshold=10, images_folder="images"):
         return False
     
 def detecttext(target_text, threshold=0.7, region=None):
-    """
-    Screenshot the screen (or a region) and run OCR to detect text.
-    Returns True if target_text is found (or similar enough).
-    
-    Parameters:
-    - target_text: the string to search for
-    - threshold: fuzzy match threshold (0.0 to 1.0)
-    - region: tuple (x1, y1, x2, y2) defining top-left and bottom-right corners
-    """
-    # Take screenshot
     if region:
         x1, y1, x2, y2 = region
         width = x2 - x1
@@ -90,7 +74,6 @@ def detecttext(target_text, threshold=0.7, region=None):
 
     screenshot_np = cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGR2RGB)
 
-    # Run OCR
     extracted_text = pytesseract.image_to_string(screenshot_np)
 
     print("[OCR OUTPUT]")
@@ -333,7 +316,7 @@ def Checkformerchants():
         imagedetection = detectimage("mariimage", threshold=7)
         textdetection2 = detecttext("Jester", threshold=6.5)
         imagedetection2 = detectimage("jesterimage", threshold=6)
-        if textdetection or imagedetection or textdetection2 or imagedetection2:
+        if textdetection and imagedetection or textdetection2 and imagedetection2:
             merchantfound = True
         if merchantfound == True:
             print("Possible merchant found... ")
