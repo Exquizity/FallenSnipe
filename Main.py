@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import configparser
 import time
+import sys
 from ahk import AHK
 import keyboard
 import os
@@ -9,18 +10,49 @@ import cv2
 import numpy as np
 import pyautogui
 import pytesseract
+from difflib import SequenceMatcher
+import platform
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_DIR = os.path.join(BASE_DIR, "settings")
+def resource_path(*parts):
+    if getattr(sys, "frozen", False):
+        base = getattr(sys, "_MEIPASS", None) or os.path.abspath(os.path.dirname(sys.executable))
+    else:
+        base = os.path.abspath(os.path.dirname(__file__))
+    return os.path.join(base, *parts)
+
+if getattr(sys, "frozen", False):
+    if platform.system() == "Windows":
+        base_persist = os.path.join(os.getenv("APPDATA") or os.path.expanduser("~"), "FallenSnipe")
+    else:
+        base_persist = os.path.join(os.path.expanduser("~"), ".fallensnipe")
+else:
+    base_persist = resource_path()
+
+BASE_DIR = resource_path()
+SETTINGS_DIR = os.path.join(base_persist, "settings")
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.ini")
-
 os.makedirs(SETTINGS_DIR, exist_ok=True)
 
 merchantfound = False
-
 config = configparser.ConfigParser()
 
-ahk = AHK()
+ahk = None
+ahk_exe_candidate = resource_path("scripts", "AutoHotkey.exe")
+try:
+    if os.path.exists(ahk_exe_candidate):
+        ahk = AHK(executable_path=ahk_exe_candidate)
+    else:
+        ahk = AHK()
+except Exception:
+    ahk = None
+
+tess_env = os.environ.get("TESSERACT_CMD")
+if tess_env:
+    pytesseract.pytesseract.tesseract_cmd = tess_env
+else:
+    bundled_tesseract = resource_path("tesseract", "tesseract.exe")
+    if os.path.exists(bundled_tesseract):
+        pytesseract.pytesseract.tesseract_cmd = bundled_tesseract
 
 orb = cv2.ORB_create(nfeatures=800)
 bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
@@ -29,15 +61,12 @@ def orb_similarity(img1, img2):
     try:
         g1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         g2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-    except:
+    except Exception:
         return 0
-
     kp1, des1 = orb.detectAndCompute(g1, None)
     kp2, des2 = orb.detectAndCompute(g2, None)
-
     if des1 is None or des2 is None:
         return 0
-
     matches = bf.match(des1, des2)
     good = [m for m in matches if m.distance < 60]
     return len(good)
@@ -45,24 +74,19 @@ def orb_similarity(img1, img2):
 def detectimage(filename, threshold=10, images_folder="images"):
     screenshot = pyautogui.screenshot()
     screenshot_np = cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGR2RGB)
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    image_path = os.path.join(script_dir, images_folder, filename)
-
+    image_path = resource_path(images_folder, filename)
     template = cv2.imread(image_path)
     if template is None:
         raise FileNotFoundError(f"Could not load template: {image_path}")
-
     score = orb_similarity(screenshot_np, template)
     print(f"[MATCH] {filename} → {score}")
-
     if score >= threshold:
         print(f"[FOUND] {filename} with score {score}")
         return True
     else:
         print("[NOT FOUND] No match")
         return False
-    
+
 def detecttext(target_text, threshold=0.7, region=None):
     if region:
         x1, y1, x2, y2 = region
@@ -71,32 +95,22 @@ def detecttext(target_text, threshold=0.7, region=None):
         screenshot = pyautogui.screenshot(region=(x1, y1, width, height))
     else:
         screenshot = pyautogui.screenshot()
-
     screenshot_np = cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGR2RGB)
-
     extracted_text = pytesseract.image_to_string(screenshot_np)
-
     print("[OCR OUTPUT]")
     print(extracted_text)
-
     extracted_lower = extracted_text.lower()
     target_lower = target_text.lower()
-
     if target_lower in extracted_lower:
         print(f"[FOUND] Exact match for '{target_text}'")
         return True
-
-    from difflib import SequenceMatcher
     ratio = SequenceMatcher(None, target_lower, extracted_lower).ratio()
     print(f"[SIMILARITY] {ratio:.2f}")
-
     if ratio >= threshold:
         print(f"[FOUND] Similar enough to '{target_text}'")
         return True
-
     print(f"[NOT FOUND] '{target_text}' not detected")
     return False
-
 
 print("Macro Logs:")
 
@@ -124,7 +138,7 @@ def save_settings():
     config["OPTIONS"]["Mode"] = mode_var.get()
     config["OPTIONS"]["MerchantCheck"] = merchant_entry.get()
     config["OPTIONS"]["DetectionMode"] = detection_var.get()
-    with open(SETTINGS_FILE, "w") as f:
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         config.write(f)
     print("Settings saved to", SETTINGS_FILE)
 
@@ -132,7 +146,7 @@ def load_settings():
     print("Loading Settings")
     if not os.path.exists(SETTINGS_FILE):
         return
-    config.read(SETTINGS_FILE)
+    config.read(SETTINGS_FILE, encoding="utf-8")
     for opt in all_options:
         section = opt["section"]
         if section in config and opt["name"] in config[section]:
@@ -245,8 +259,11 @@ tk.Button(options_frame, text="?", command=lambda: messagebox.showinfo("Detectio
 
 load_settings()
 
+# --- ALL CODING IS AFTER HERE ---
 def useitem(item):
     print("Searching for item: ", item)
+    if ahk is None:
+        return
     ahk.mouse_move(22, 509, speed=5, relative=False)
     time.sleep(0.1)
     ahk.click()
@@ -274,35 +291,35 @@ def useitem(item):
     ahk.click()
     time.sleep(0.4)
 
-
 def enabletracker():
-        useitem("Merchant Tracker")
-        time.sleep(1)
-        found = detecttext("Enobled", threshold=0.56, region=(1699, 805, 1851, 858))
+    useitem("Merchant Tracker")
+    time.sleep(1)
+    found = detecttext("Enobled", threshold=0.56, region=(1699, 805, 1851, 858))
+    if ahk:
         ahk.mouse_move(22, 509, speed=10, relative=False)
         time.sleep(0.1)
         ahk.click()
-
-        if found:
-            print("Merchant Tracker Enabled")
-        else:
-            print("Merchant Tracker wasnt enabled")
-            enabletracker()
+    if found:
+        print("Merchant Tracker Enabled")
+    else:
+        print("Merchant Tracker wasnt enabled — retrying")
+        enabletracker()
 
 def exit(event=None):
     ui.destroy()
 
 def press(key):
-    keyboard.write(key)
+    if ahk:
+        ahk.send(key)
 
 def Checkformerchants():
     mode = detection_var.get()
     macromode = mode_var.get()
     timebetweenchecks = merchant_entry.get()
-    if timebetweenchecks <= 15:
-        timebetweenchecks = 30
-        print("Time Between Checks is too low of a number and has been set to 30")
-    time.sleep(timebetweenchecks)
+    try:
+        time.sleep(max(1, int(timebetweenchecks)))
+    except Exception:
+        time.sleep(1)
     if macromode == "Autobuy" and mode == "Teleport":
         useitem("Merchant Teleporter")
         time.sleep(2)
@@ -311,20 +328,18 @@ def Checkformerchants():
             time.sleep(0.08)
         time.sleep(0.1)
         press("e")
-        time.sleep(3)
+        time.sleep(4)
         textdetection = detecttext("Mori", threshold=0.66)
-        imagedetection = detectimage("mariimage", threshold=7)
-        textdetection2 = detecttext("Jester", threshold=6.5)
-        imagedetection2 = detectimage("jesterimage", threshold=6)
-        if textdetection and imagedetection or textdetection2 and imagedetection2:
+        imagedetection = detectimage("mariimage.png", threshold=7)
+        textdetection2 = detecttext("Jester", threshold=0.65)
+        imagedetection2 = detectimage("jesterimage.png", threshold=6)
+        global merchantfound
+        if (textdetection and imagedetection) or (textdetection2 and imagedetection2):
             merchantfound = True
-        if merchantfound == True:
-            print("Possible merchant found... ")
-
-
-
-        
-
+        if merchantfound:
+            opentextfound = detecttext("Open", threshold=0.8, region=(509, 908, 1104, 968))
+            if opentextfound:
+                print("Merchant Found")
 
 def OnStart(event=None):
     save_settings()
@@ -336,14 +351,13 @@ def OnStart(event=None):
     if mode == "Tracker":
         print("Tracker mode enabled: Enabling Merchant Tracker")
         enabletracker()
+    Checkformerchants()
 
 def on_close():
     save_settings()
     ui.destroy()
 
 ui.protocol("WM_DELETE_WINDOW", on_close)
-
 ui.bind_all("<F1>", OnStart)
 ui.bind_all("<F2>", exit)
-
 ui.mainloop()
