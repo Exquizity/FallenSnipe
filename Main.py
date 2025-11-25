@@ -112,6 +112,43 @@ def detecttext(target_text, threshold=0.7, region=None):
     print(f"[NOT FOUND] '{target_text}' not detected")
     return False
 
+def findmariitem(threshold=0.7, region=None):
+    candidates = ["Lucky Potion", "Lucky Potion L", "Lucky Potion XL", "Speed Potion", "Speed Potion L", "Speed Potion XL", "Mixed Potion", "Fortune Spoid I", "Fortune Spoid II", "Fortune Spoid III", "Gear A", "Gear B", "Lucky Penny", "Void Coin"]
+
+    if region:
+        x1, y1, x2, y2 = region
+        width = x2 - x1
+        height = y2 - y1
+        screenshot = pyautogui.screenshot(region=(x1, y1, width, height))
+    else:
+        screenshot = pyautogui.screenshot()
+
+    screenshot_np = cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGR2RGB)
+    extracted_text = pytesseract.image_to_string(screenshot_np)
+    print("[OCR OUTPUT]")
+    print(extracted_text)
+
+    extracted_lower = extracted_text.lower()
+
+    best_match = None
+    best_ratio = 0.0
+
+    for candidate in candidates:
+        candidate_lower = candidate.lower()
+
+        if candidate_lower in extracted_lower:
+            return candidate
+
+        ratio = SequenceMatcher(None, candidate_lower, extracted_lower).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match = candidate
+
+    if best_match and best_ratio >= threshold:
+        return best_match
+
+    return None
+
 print("Macro Logs:")
 
 def add_option(parent, section, text, max_value, bg_color):
@@ -125,7 +162,8 @@ def add_option(parent, section, text, max_value, bg_color):
     entry.pack(side="left", padx=5)
     max_label = tk.Label(frame, text=f"Max {max_value}", bg=bg_color)
     max_label.pack(side="left")
-    return {"section": section, "name": text, "var": var, "entry": entry}
+    return {"section": section, "name": text, "var": var, "entry": entry, "max": max_value}
+
 
 def save_settings():
     for opt in all_options:
@@ -260,6 +298,38 @@ tk.Button(options_frame, text="?", command=lambda: messagebox.showinfo("Detectio
 load_settings()
 
 # --- ALL CODING IS AFTER HERE ---
+
+def get_selected_items():
+    result = {}
+    for opt in all_options:
+        section = opt["section"]
+        name = opt["name"]
+        enabled = bool(opt["var"].get())    
+        raw_amount = opt["entry"].get().strip()
+        try:
+            amount = int(raw_amount)
+        except Exception:
+            amount = 1
+        maxv = opt.get("max") or amount
+        if amount < 1:
+            amount = 1
+        if maxv is not None:
+            amount = min(amount, maxv)
+        if section not in result:
+            result[section] = []
+        result[section].append({
+            "name": name,
+            "enabled": enabled,
+            "amount": amount,
+            "max": maxv,
+        })
+    return result
+
+def testmerchantautobuySettings():
+    items = get_selected_items()
+
+
+
 def useitem(item):
     print("Searching for item: ", item)
     if ahk is None:
@@ -312,6 +382,21 @@ def press(key):
     if ahk:
         ahk.send(key)
 
+def itemname(merchant):
+    if merchant == "Mari":
+        time.sleep(0.5)
+        itemnme = findmariitem(threshold=0.65, region=(721, 379, 1068, 404))
+        return itemnme
+def BuyMerchantItems(merchant):
+    items = get_selected_items()
+    time.sleep(1)
+    ahk.mouse_move(582, 721, speed=5, relative=False)
+    if merchant == "Mari":
+        item = itemname("Mari")
+        
+
+
+
 def Checkformerchants():
     mode = detection_var.get()
     macromode = mode_var.get()
@@ -322,6 +407,10 @@ def Checkformerchants():
         time.sleep(1)
     if macromode == "Autobuy" and mode == "Teleport":
         useitem("Merchant Teleporter")
+        time.sleep(1)
+        ahk.mouse_move(22, 509, speed=5, relative=False)
+        time.sleep(0.1)
+        ahk.click()
         time.sleep(2)
         for i in range(5):
             press("o")
@@ -329,17 +418,27 @@ def Checkformerchants():
         time.sleep(0.1)
         press("e")
         time.sleep(4)
-        textdetection = detecttext("Mori", threshold=0.66)
+        textdetection = detecttext("Mari", threshold=0.66)
+        time.sleep(0.7)
+        textdetectionmari2 = detecttext("Mori", threshold=0.66)
+        time.sleep(0.7)
         imagedetection = detectimage("mariimage.png", threshold=7)
+        time.sleep(0.7)
         textdetection2 = detecttext("Jester", threshold=0.65)
+        time.sleep(0.7)
         imagedetection2 = detectimage("jesterimage.png", threshold=6)
+        time.sleep(0.7)
+        globaltextdetection = detecttext("Click to skip", threshold=0.66)
+        wru = detecttext("Who are you?", threshold=0.5, region=(509, 908, 1104, 968))
+        open = detecttext("Open", threshold=0.3, region=(509, 908, 1104, 968))
         global merchantfound
-        if (textdetection and imagedetection) or (textdetection2 and imagedetection2):
+        if (textdetection or textdetectionmari2 and imagedetection) or (textdetection2 and imagedetection2) or globaltextdetection or open or wru:
             merchantfound = True
         if merchantfound:
-            opentextfound = detecttext("Open", threshold=0.8, region=(509, 908, 1104, 968))
-            if opentextfound:
-                print("Merchant Found")
+            print("Merchant Found")
+            ahk.mouse_move(648, 942, speed=5, relative=False)
+        
+                
 
 def OnStart(event=None):
     save_settings()
